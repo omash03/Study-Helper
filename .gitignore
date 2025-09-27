@@ -1,0 +1,52 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+**/*~
+/.fingerprint/
+
+# Keep Cargo.lock for apps (do not ignore it)
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Windows
+*.pdb
+*.exe
+
+# IDEs / editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs and temp
+*.log
+tmp/
+*.tmp
+
+# Environment / secrets
+.env
+.env.local
+secrets.toml
+credentials.json
+
+# User data — keep sample data but ignore other JSONs in data/
+/data/*.json
+!/data/sample_set.json
+
+# Optional: ignore target-level cached files (if any left)
+/CACHEDIR.TAG
+
+# Ignore build output directories sometimes checked in by mistake
+/build/
+
+# Ignore personal notes
+*.swp
+*.swo
+
+# Ignore VS Code workspace storage
+.vscode-server/
+
+# Ignore node_modules if present
+node_modules/
