@@ -1,0 +1,23 @@
+{
+  "study_set": {
+    "title": "Sample Study Set",
+    "description": "A sample set of flashcards for demonstration purposes.",
+    "flashcards": [
+      {
+        "question": "What is the capital of France?",
+        "answer": "Paris",
+        "hints": ["It's known as the City of Light.", "It's famous for the Eiffel Tower."]
+      },
+      {
+        "question": "What is the largest planet in our solar system?",
+        "answer": "Jupiter",
+        "hints": ["It's a gas giant.", "It has a Great Red Spot."]
+      },
+      {
+        "question": "What is the chemical symbol for water?",
+        "answer": "H2O",
+        "hints": ["It's essential for life.", "It consists of two hydrogen atoms and one oxygen atom."]
+      }
+    ]
+  }
+}
