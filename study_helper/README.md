@@ -40,26 +40,6 @@ study_helper
     └── storage_tests.rs
 ```
 
-## Setup Instructions
-
-1. **Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   cd study_helper
-   ```
-
-2. **Install Rust**: Ensure you have Rust installed on your machine. You can install it from [rustup.rs](https://rustup.rs/).
-
-3. **Build the project**:
-   ```bash
-   cargo build
-   ```
-
-4. **Run the application**:
-   ```bash
-   cargo run
-   ```
-
 ## Usage Guidelines
 
 - Upon launching the application, you will be presented with the main interface.
@@ -68,4 +48,4 @@ study_helper
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for more details.
+This project is licensed under the Creative Commons License. See the LICENSE file for more details.
