@@ -1,4 +1,7 @@
-struct Flashcard {
+use serde::{Serialize, Deserialize};
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Flashcard {
     question: String,
     answer: String,
     hints: Vec<String>,
@@ -15,5 +18,13 @@ impl Flashcard {
 
     pub fn get_hints(&self) -> &Vec<String> {
         &self.hints
+    }
+
+    pub fn question(&self) -> &str {
+        &self.question
+    }
+
+    pub fn answer(&self) -> &str {
+        &self.answer
     }
 }

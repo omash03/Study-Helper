@@ -2,6 +2,8 @@
 use eframe::{egui, epi};
 use crate::models::quiz::{Quiz, Question};
 
+
+// A simple quiz view using egui
 pub struct QuizView {
     quiz: Quiz,
     current_question_index: usize,

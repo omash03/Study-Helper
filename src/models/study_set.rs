@@ -1,4 +1,8 @@
-struct StudySet {
+use super::flashcard::Flashcard;
+use serde::{Serialize, Deserialize};
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct StudySet {
     name: String,
     flashcards: Vec<Flashcard>,
 }
@@ -29,5 +33,9 @@ impl StudySet {
 
     pub fn get_all_flashcards(&self) -> &Vec<Flashcard> {
         &self.flashcards
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
