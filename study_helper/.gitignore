@@ -50,3 +50,6 @@ credentials.json
 
 # Ignore node_modules if present
 node_modules/
+
+# User config (persisted by the app)
+config.json

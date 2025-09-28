@@ -1,4 +1,4 @@
-struct Quiz {
+pub struct Quiz {
     title: String,
     questions: Vec<Question>,
 }

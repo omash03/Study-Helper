@@ -1,3 +1,8 @@
+// src/models/mod.rs
+
+/*
+This module defines the core data models for the Study Helper application.
+*/
 mod flashcard;
 mod study_set;
 mod quiz;
