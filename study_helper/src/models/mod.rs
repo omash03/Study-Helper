@@ -10,3 +10,5 @@ mod quiz;
 pub use flashcard::Flashcard;
 pub use study_set::StudySet;
 pub use quiz::Quiz;
+pub use quiz::QuestionType;
+pub use quiz::QuestionData;

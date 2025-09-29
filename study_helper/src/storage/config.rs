@@ -25,7 +25,7 @@ fn config_path() -> PathBuf {
     // from the executable directory ("Start in" setting), so using the
     // executable directory avoids "config not found" issues.
     if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(dir) = exe_path.parent() {
+        if let Some(dir) = exe_path.parent() { 
             return dir.join("config.json");
         }
     }
