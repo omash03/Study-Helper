@@ -1,7 +1,7 @@
 // src/gui.rs
 use eframe::{egui, App, Frame};
 use egui::{TextStyle, FontId, RichText, Vec2};
-use crate::models::{Flashcard as AppFlashcard, StudySet as AppStudySet};
+use crate::models::{Flashcard as AppFlashcard, StudySet as AppStudySet, Quiz as AppQuiz};
 use crate::storage::{load_config, save_config, list_class_folders};
 use rfd::FileDialog;
 
@@ -36,6 +36,15 @@ pub struct StudyHelperApp {
     current_card_index: usize,
     card_flipped: bool,
     show_hint: bool,
+    // quiz UI state
+    selected_quiz: Option<usize>,
+    new_quiz_name: String,
+    show_create_quiz_popup: bool,
+    // counts for placeholder question creation
+    new_quiz_mc_count: usize,
+    new_quiz_tf_count: usize,
+    new_quiz_sa_count: usize,
+    new_quiz_mb_count: usize,
 }
 
 enum AppView {
@@ -53,7 +62,7 @@ impl Default for StudyHelperApp {
         let mut selected_class: Option<usize> = None;
         let mut study_sets: Vec<AppStudySet> = Vec::new();
         let mut selected_set: Option<usize> = None;
-    let status_message = String::new();
+        let status_message = String::new();
 
         if let Ok(cfg) = load_config() {
             storage_base_path = cfg.storage_base_path.clone();
@@ -100,6 +109,13 @@ impl Default for StudyHelperApp {
             current_card_index: 0,
             card_flipped: false,
             show_hint: false,
+            selected_quiz: None,
+            new_quiz_name: String::new(),
+            show_create_quiz_popup: false,
+            new_quiz_mc_count: 0,
+            new_quiz_tf_count: 0,
+            new_quiz_sa_count: 0,
+            new_quiz_mb_count: 0,
             storage_base_path,
             storage_class_name,
             import_file_path: String::new(),
@@ -132,8 +148,8 @@ impl App for StudyHelperApp {
     style.text_styles.insert(TextStyle::Heading, FontId::proportional(28.0 * scale));
     style.text_styles.insert(TextStyle::Body, FontId::proportional(16.0 * scale));
     style.text_styles.insert(TextStyle::Button, FontId::proportional(18.0 * scale));
-    style.spacing.button_padding = Vec2::new(10.0 * scale, 6.0 * scale);
-    style.spacing.item_spacing = Vec2::new(8.0 * scale, 8.0 * scale);
+    style.spacing.button_padding = Vec2::new((10.0 * scale).round(), (6.0 * scale).round());
+    style.spacing.item_spacing = Vec2::new((8.0 * scale).round(), (8.0 * scale).round());
     ctx.set_style(style);
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -142,7 +158,7 @@ impl App for StudyHelperApp {
                 ui.label(RichText::new("Welcome to Study Helper!").heading());
                 ui.add_space((8.0 * scale).round());
 
-                let btn_size = Vec2::new(140.0 * scale, 48.0 * scale);
+                let btn_size = Vec2::new((140.0 * scale).round(), (48.0 * scale).round());
 
                 ui.horizontal(|ui| {
                     if ui.add_sized(btn_size, egui::Button::new(RichText::new("Flashcards").size(18.0 * scale))).clicked() {
@@ -334,7 +350,7 @@ impl StudyHelperApp {
                 // Card display box: allocate an exact, pixel-aligned rect and draw a border.
                 let card_w = ui.available_width().round();
                 let card_h = ((80.0 * scale).max(60.0)).round();
-                let (card_rect, _resp) = ui.allocate_exact_size(Vec2::new(card_w, card_h), egui::Sense::hover());
+                let (card_rect, _resp) = ui.allocate_exact_size(Vec2::new(card_w.round(), card_h.round()), egui::Sense::hover());
                 // draw a subtle border around the card using four line segments
                 let stroke = egui::Stroke::new(1.0, egui::Color32::from_gray(100));
                 let tl = card_rect.left_top();
@@ -401,8 +417,8 @@ impl StudyHelperApp {
     let avail = ui.available_size();
     let total_width = avail.x.round();
     let avail_height = avail.y.round();
-    let left_width = (total_width * 0.33).max(200.0 * scale).round();
-    let right_width = (total_width - left_width - 8.0 * scale).max(200.0 * scale).round();
+    let left_width = ((total_width * 0.33).max(200.0 * scale)).round();
+    let right_width = ((total_width - left_width - 8.0 * scale).max(200.0 * scale)).round();
 
     // A small deferred removal slot so we can mutate `self.study_sets` after
     // the UI closures (avoids borrow conflicts between left/right panes).
@@ -411,7 +427,7 @@ impl StudyHelperApp {
     ui.horizontal(|ui| {
             // LEFT: study set selection, delete button, and flashcard selector (about 1/3 width)
             let left_height = avail_height;
-            ui.allocate_ui_with_layout(egui::Vec2::new(left_width, left_height), egui::Layout::top_down(egui::Align::Min), |ui_left| {
+            ui.allocate_ui_with_layout(egui::Vec2::new(left_width.round(), left_height.round()), egui::Layout::top_down(egui::Align::Min), |ui_left| {
                 ui_left.label("Class:");
                 // Class dropdown populated from available_classes; allow refresh
                 let classes = self.available_classes.clone();
@@ -590,8 +606,8 @@ impl StudyHelperApp {
             ui.add_space((8.0 * scale).round());
 
             // RIGHT: everything else (new set creation + add/edit flashcard form)
-            let right_height = avail_height;
-            ui.allocate_ui_with_layout(egui::Vec2::new(right_width, right_height), egui::Layout::top_down(egui::Align::Min), |ui_right| {
+            let right_height = avail_height.round();
+            ui.allocate_ui_with_layout(egui::Vec2::new(right_width.round(), right_height), egui::Layout::top_down(egui::Align::Min), |ui_right| {
                 // Create new set via pop-up so it doesn't consume workspace
                 if ui_right.button("Create New Set").clicked() {
                     self.show_create_set_popup = true;
@@ -711,7 +727,7 @@ impl StudyHelperApp {
                     // No set selected: allocate a small pixel-aligned placeholder below the Create button to avoid unaligned markers
                     let ph_w = ui_right.available_width().round();
                     let ph_h = (4.0 * scale).round();
-                    ui_right.allocate_ui_with_layout(egui::Vec2::new(ph_w, ph_h), egui::Layout::top_down(egui::Align::Min), |_ui_ph| {
+                    ui_right.allocate_ui_with_layout(egui::Vec2::new(ph_w.round(), ph_h.round()), egui::Layout::top_down(egui::Align::Min), |_ui_ph| {
                         // intentionally empty placeholder
                     });
                 }
@@ -858,9 +874,302 @@ impl StudyHelperApp {
         
     }
 
-    fn quiz_view(&self, ui: &mut egui::Ui, scale: f32) {
+    fn quiz_view(&mut self, ui: &mut egui::Ui, scale: f32) {
+        // We'll mirror the Study Sets layout: left pane for class/set/quiz selection, right pane for actions
         ui.label(RichText::new("Quiz View").heading());
     ui.add_space((6.0 * scale).round());
-        ui.label(RichText::new("Add quiz display and interaction logic here.").size(14.0 * scale));
+
+        let avail = ui.available_size();
+        let total_width = avail.x.round();
+        let avail_height = avail.y.round();
+        let left_width = (total_width * 0.33).max(200.0 * scale).round();
+        let right_width = (total_width - left_width - 8.0 * scale).max(200.0 * scale).round();
+
+        ui.horizontal(|ui| {
+            // LEFT
+            ui.allocate_ui_with_layout(egui::Vec2::new(left_width, avail_height), egui::Layout::top_down(egui::Align::Min), |ui_left| {
+                ui_left.label("Class:");
+                if self.available_classes.is_empty() {
+                    ui_left.label(RichText::new("(no classes)").italics());
+                } else {
+                    let mut sel = self.selected_class.unwrap_or(0);
+                    if sel >= self.available_classes.len() { sel = 0; }
+                    egui::ComboBox::from_id_salt("quiz_class_select").selected_text(&self.available_classes[sel]).show_ui(ui_left, |ui| {
+                        for (i, c) in self.available_classes.iter().enumerate() {
+                            ui.selectable_value(&mut sel, i, c);
+                        }
+                    });
+                }
+
+                ui_left.add_space((6.0 * scale).round());
+                ui_left.label("Set:");
+                if self.study_sets.is_empty() {
+                    ui_left.label(RichText::new("(no sets)").italics());
+                } else {
+                    let labels: Vec<String> = self.study_sets.iter().map(|s| s.name().to_string()).collect();
+                    let mut selected = self.selected_set.unwrap_or(0);
+                    if selected >= labels.len() { selected = 0; }
+                    egui::ComboBox::from_id_salt("quiz_set_select").selected_text(&labels[selected]).show_ui(ui_left, |ui| {
+                        for (i, l) in labels.iter().enumerate() {
+                            ui.selectable_value(&mut selected, i, l);
+                        }
+                    });
+
+                    // Apply selection change
+                    if self.selected_set != Some(selected) {
+                        // no mutability of self in this view fn; real updates happen elsewhere
+                    }
+
+                    // Quiz dropdown + controls moved here (Delete / Save)
+                    ui_left.add_space((6.0 * scale).round());
+                    ui_left.label("Quiz:");
+                    if let Some(idx) = self.selected_set {
+                        if idx < self.study_sets.len() {
+                            let set = &self.study_sets[idx];
+                            let titles = set.quiz_titles();
+                            if titles.is_empty() {
+                                ui_left.label(RichText::new("(no quizzes)").italics());
+                            } else {
+                                let mut qsel = self.selected_quiz.unwrap_or(0);
+                                if qsel >= titles.len() { qsel = 0; }
+                                egui::ComboBox::from_id_salt("quiz_select").selected_text(&titles[qsel]).show_ui(ui_left, |ui| {
+                                    for (i, t) in titles.iter().enumerate() {
+                                        ui.selectable_value(&mut qsel, i, t);
+                                    }
+                                });
+                                // apply selection change immediately
+                                if self.selected_quiz != Some(qsel) {
+                                    self.selected_quiz = Some(qsel);
+                                    self.current_card_index = 0;
+                                    self.card_flipped = false;
+                                    self.show_hint = false;
+                                }
+
+                                // Controls: Delete Quiz (top) and Save (below)
+                                ui_left.add_space((6.0 * scale).round());
+                                ui_left.vertical(|ui_v| {
+                                    if ui_v.button("Delete Quiz").clicked() {
+                                        if let Some(qi) = self.selected_quiz {
+                                            if let Some(removed) = self.study_sets[idx].remove_quiz(qi) {
+                                                self.status_message = format!("Deleted quiz '{}'", removed.title());
+                                                // persist set if storage configured
+                                                if !self.storage_base_path.trim().is_empty() && !self.storage_class_name.trim().is_empty() {
+                                                    let base = std::path::Path::new(&self.storage_base_path);
+                                                    let set_ref = &self.study_sets[idx];
+                                                    match crate::storage::save_set_into_class_folder(base, &self.storage_class_name, set_ref.name(), set_ref) {
+                                                        Ok(p) => self.status_message = format!("Deleted and saved: {}", p.display()),
+                                                        Err(e) => self.status_message = format!("Deleted but save failed: {}", e),
+                                                    }
+                                                }
+                                                // adjust selection
+                                                let remaining = self.study_sets[idx].get_all_quizzes().len();
+                                                if remaining == 0 { self.selected_quiz = None; }
+                                                else if qi >= remaining { self.selected_quiz = Some(0); }
+                                            }
+                                        }
+                                    }
+                                    ui_v.add_space((4.0 * scale).round());
+                                    if ui_v.button("Save").clicked() {
+                                        if !self.storage_base_path.trim().is_empty() && !self.storage_class_name.trim().is_empty() {
+                                            let base = std::path::Path::new(&self.storage_base_path);
+                                            let set_ref = &self.study_sets[idx];
+                                            match crate::storage::save_set_into_class_folder(base, &self.storage_class_name, set_ref.name(), set_ref) {
+                                                Ok(p) => self.status_message = format!("Saved: {}", p.display()),
+                                                Err(e) => self.status_message = format!("Save error: {}", e),
+                                            }
+                                        } else {
+                                            self.status_message = "Set storage not configured. Open 'Create New Set' and set Base folder and Class folder.".to_string();
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            });
+
+            ui.add(egui::Separator::default().vertical());
+            ui.add_space((8.0 * scale).round());
+
+            // RIGHT: actions
+            ui.allocate_ui_with_layout(egui::Vec2::new(right_width, avail_height), egui::Layout::top_down(egui::Align::Min), |ui_right| {
+                if ui_right.button("Create New Quiz").clicked() {
+                    self.show_create_quiz_popup = true;
+                    self.new_quiz_name.clear();
+                }
+
+                ui_right.add_space((6.0 * scale).round());
+                // If a set is selected, show the inline quiz editor (questions) in the right pane.
+                if let Some(set_idx) = self.selected_set {
+                    if set_idx < self.study_sets.len() {
+                        ui_right.add_space((4.0 * scale).round());
+                        ui_right.separator();
+                        ui_right.label("Questions:");
+                        if let Some(qi) = self.selected_quiz {
+                            if qi < self.study_sets[set_idx].get_all_quizzes().len() {
+                                // number of questions (immutable read)
+                                let qcount = self.study_sets[set_idx].get_all_quizzes()[qi].question_count();
+
+                                ui_right.horizontal(|ui_h| {
+                                    // compute explicit widths from the available inner width so
+                                    // the editor column size is predictable and text fields
+                                    // can be sized directly from it.
+                                    let inner_total = ui_h.available_width();
+                                    // make the list column a bit narrower and give the editor more room
+                                    let list_w = (inner_total * 0.15).max(80.0).round();
+                                    let edit_w = (inner_total - list_w - (6.0 * scale)).max(200.0).round();
+
+                                    // QUESTION LIST (fixed width)
+                                    ui_h.allocate_ui_with_layout(egui::Vec2::new(list_w, avail_height), egui::Layout::top_down(egui::Align::Min), |ui_list| {
+                                        for i in 0..qcount {
+                                            if ui_list.selectable_label(self.current_card_index == i, format!("{}", i + 1)).clicked() {
+                                                self.current_card_index = i;
+                                            }
+                                        }
+                                        if qcount == 0 { ui_list.label("(no questions)"); }
+                                        ui_list.add_space((6.0 * scale).round());
+                                        ui_list.horizontal(|ui_lh| {
+                                            if ui_lh.small_button("Add").clicked() {
+                                                if let Some(quiz_mut) = self.study_sets[set_idx].get_all_quizzes_mut().get_mut(qi) {
+                                                    quiz_mut.add_question("New question".to_string(), Vec::new(), "".to_string(), crate::models::QuestionType::FillInTheBlank);
+                                                }
+                                            }
+                                            if ui_lh.small_button("Delete").clicked() {
+                                                let idx = self.current_card_index;
+                                                if let Some(quiz_mut) = self.study_sets[set_idx].get_all_quizzes_mut().get_mut(qi) {
+                                                    if idx < quiz_mut.question_count() {
+                                                        quiz_mut.remove_question(idx);
+                                                        if self.current_card_index > 0 { self.current_card_index -= 1; }
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    });
+
+                                    ui_h.add(egui::Separator::default().vertical());
+
+                                    // EDITOR (use the precomputed edit_w for sizing the text fields)
+                                    ui_h.allocate_ui_with_layout(egui::Vec2::new(edit_w, avail_height), egui::Layout::top_down(egui::Align::Min), |ui_edit| {
+                                        let sel_q = self.current_card_index;
+                                        if sel_q < qcount {
+                                            if let Some(qdata) = self.study_sets[set_idx].get_all_quizzes()[qi].get_question_data(sel_q) {
+                                                let mut qdata = qdata; // owned copy for editing
+                                                ui_edit.label("Prompt:");
+                                                let text_w = (edit_w * 0.95).round();
+                                                ui_edit.add(egui::TextEdit::multiline(&mut qdata.prompt).desired_rows(2).desired_width(text_w));
+                                                ui_edit.label("Answer:");
+                                                ui_edit.add(egui::TextEdit::multiline(&mut qdata.answer).desired_rows(2).desired_width(text_w));
+                                                ui_edit.label("Options (comma-separated, for MC):");
+                                                let mut opts_joined = qdata.options.join(", ");
+                                                ui_edit.add(egui::TextEdit::multiline(&mut opts_joined).desired_rows(2).desired_width(text_w));
+                                                ui_edit.label("Type:");
+                                                let mut qtype = qdata.question_type.clone();
+                                                ui_edit.horizontal(|ui_ht| {
+                                                    if ui_ht.selectable_label(qtype == crate::models::QuestionType::MultipleChoice, "Multiple Choice").clicked() {
+                                                        qtype = crate::models::QuestionType::MultipleChoice;
+                                                    }
+                                                    if ui_ht.selectable_label(qtype == crate::models::QuestionType::FillInTheBlank, "Fill In The Blank").clicked() {
+                                                        qtype = crate::models::QuestionType::FillInTheBlank;
+                                                    }
+                                                });
+
+                                                ui_edit.add_space((6.0 * scale).round());
+                                                ui_edit.horizontal(|ui_apply| {
+                                                    if ui_apply.button("Apply").clicked() {
+                                                        if let Some(quiz_mut) = self.study_sets[set_idx].get_all_quizzes_mut().get_mut(qi) {
+                                                            let new_opts: Vec<String> = opts_joined.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                                                            let new_data = crate::models::QuestionData { prompt: qdata.prompt, options: new_opts, answer: qdata.answer, question_type: qtype };
+                                                            quiz_mut.update_question(sel_q, new_data);
+                                                        }
+                                                    }
+                                                    if ui_apply.button("Save").clicked() {
+                                                        if !self.storage_base_path.trim().is_empty() && !self.storage_class_name.trim().is_empty() {
+                                                            let base = std::path::Path::new(&self.storage_base_path);
+                                                            let set_ref = &self.study_sets[set_idx];
+                                                            match crate::storage::save_set_into_class_folder(base, &self.storage_class_name, set_ref.name(), set_ref) {
+                                                                Ok(p) => self.status_message = format!("Saved: {}", p.display()),
+                                                                Err(e) => self.status_message = format!("Save error: {}", e),
+                                                            }
+                                                        } else {
+                                                            self.status_message = "Set storage not configured.".to_string();
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                        } else {
+                                            ui_edit.label("Select a question to edit or add a new one.");
+                                        }
+                                    });
+                                });
+                            }
+                        }
+                    }
+                }
+            });
+        });
+
+        // Popup for creating a quiz
+        if self.show_create_quiz_popup {
+            egui::Window::new("Create Quiz").collapsible(false).resizable(false).show(ui.ctx(), |ui_win| {
+                ui_win.label("Quiz title:");
+                ui_win.text_edit_singleline(&mut self.new_quiz_name);
+                ui_win.add_space((6.0 * scale).round());
+
+                ui_win.label("Create placeholder questions:");
+                ui_win.horizontal(|ui_h| {
+                    ui_h.label("Multiple choice:");
+                    ui_h.add(egui::DragValue::new(&mut self.new_quiz_mc_count).range(0..=50));
+                });
+                ui_win.horizontal(|ui_h| {
+                    ui_h.label("True/False:");
+                    ui_h.add(egui::DragValue::new(&mut self.new_quiz_tf_count).range(0..=50));
+                });
+                ui_win.horizontal(|ui_h| {
+                    ui_h.label("Short answer:");
+                    ui_h.add(egui::DragValue::new(&mut self.new_quiz_sa_count).range(0..=50));
+                });
+                ui_win.horizontal(|ui_h| {
+                    ui_h.label("Multiple blank:");
+                    ui_h.add(egui::DragValue::new(&mut self.new_quiz_mb_count).range(0..=50));
+                });
+
+                ui_win.add_space((6.0 * scale).round());
+                ui_win.horizontal(|ui_h| {
+                    if ui_h.button("Create").clicked() {
+                        if !self.new_quiz_name.trim().is_empty() {
+                            let mut q = AppQuiz::new(self.new_quiz_name.trim().to_string());
+                            q.add_placeholder_questions(self.new_quiz_mc_count, self.new_quiz_tf_count, self.new_quiz_sa_count, self.new_quiz_mb_count);
+                            if let Some(idx) = self.selected_set {
+                                if idx < self.study_sets.len() {
+                                    self.study_sets[idx].add_quiz(q);
+                                    // persist if configured
+                                    if !self.storage_base_path.trim().is_empty() && !self.storage_class_name.trim().is_empty() {
+                                        let base = std::path::Path::new(&self.storage_base_path);
+                                        let set = &self.study_sets[idx];
+                                        match crate::storage::save_set_into_class_folder(base, &self.storage_class_name, set.name(), set) {
+                                            Ok(p) => self.status_message = format!("Created and saved quiz in {}", p.display()),
+                                            Err(e) => self.status_message = format!("Created but save failed: {}", e),
+                                        }
+                                    } else {
+                                        self.status_message = format!("Created quiz '{}'", self.new_quiz_name.trim());
+                                    }
+                                    self.selected_quiz = Some(self.study_sets[idx].get_all_quizzes().len() - 1);
+                                }
+                            }
+                            self.show_create_quiz_popup = false;
+                            self.new_quiz_name.clear();
+                            // reset counts
+                            self.new_quiz_mc_count = 0;
+                            self.new_quiz_tf_count = 0;
+                            self.new_quiz_sa_count = 0;
+                            self.new_quiz_mb_count = 0;
+                        }
+                    }
+                    if ui_h.button("Cancel").clicked() {
+                        self.show_create_quiz_popup = false;
+                    }
+                });
+            });
+        }
     }
 }
