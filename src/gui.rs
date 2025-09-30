@@ -40,6 +40,8 @@ pub struct StudyHelperApp {
     selected_quiz: Option<usize>,
     new_quiz_name: String,
     show_create_quiz_popup: bool,
+    // whether the focused quiz window is open (separate distraction-free window)
+    show_quiz_window: bool,
     // counts for placeholder question creation
     new_quiz_mc_count: usize,
     new_quiz_tf_count: usize,
@@ -92,7 +94,6 @@ impl Default for StudyHelperApp {
                 }
             }
         }
-
         // Prepare cached copies of the storage path values before moving them into the struct
         let last_storage_base_path = storage_base_path.clone();
         let last_storage_class_name = storage_class_name.clone();
@@ -112,6 +113,7 @@ impl Default for StudyHelperApp {
             selected_quiz: None,
             new_quiz_name: String::new(),
             show_create_quiz_popup: false,
+            show_quiz_window: false,
             new_quiz_mc_count: 0,
             new_quiz_tf_count: 0,
             new_quiz_sa_count: 0,
@@ -142,15 +144,15 @@ impl App for StudyHelperApp {
             scale = 1.0;
         }
 
-    // Update style to scale text sizes and spacing.
-    // Some egui versions expose only immutable access, so clone, modify and set back.
-    let mut style = (*ctx.style()).clone();
-    style.text_styles.insert(TextStyle::Heading, FontId::proportional(28.0 * scale));
-    style.text_styles.insert(TextStyle::Body, FontId::proportional(16.0 * scale));
-    style.text_styles.insert(TextStyle::Button, FontId::proportional(18.0 * scale));
-    style.spacing.button_padding = Vec2::new((10.0 * scale).round(), (6.0 * scale).round());
-    style.spacing.item_spacing = Vec2::new((8.0 * scale).round(), (8.0 * scale).round());
-    ctx.set_style(style);
+        // Update style to scale text sizes and spacing.
+        // Some egui versions expose only immutable access, so clone, modify and set back.
+        let mut style = (*ctx.style()).clone();
+        style.text_styles.insert(TextStyle::Heading, FontId::proportional(28.0 * scale));
+        style.text_styles.insert(TextStyle::Body, FontId::proportional(16.0 * scale));
+        style.text_styles.insert(TextStyle::Button, FontId::proportional(18.0 * scale));
+        style.spacing.button_padding = Vec2::new((10.0 * scale).round(), (6.0 * scale).round());
+        style.spacing.item_spacing = Vec2::new((8.0 * scale).round(), (8.0 * scale).round());
+        ctx.set_style(style);
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
@@ -877,7 +879,7 @@ impl StudyHelperApp {
     fn quiz_view(&mut self, ui: &mut egui::Ui, scale: f32) {
         // We'll mirror the Study Sets layout: left pane for class/set/quiz selection, right pane for actions
         ui.label(RichText::new("Quiz View").heading());
-    ui.add_space((6.0 * scale).round());
+        ui.add_space((6.0 * scale).round());
 
         let avail = ui.available_size();
         let total_width = avail.x.round();
@@ -932,11 +934,23 @@ impl StudyHelperApp {
                             } else {
                                 let mut qsel = self.selected_quiz.unwrap_or(0);
                                 if qsel >= titles.len() { qsel = 0; }
+                                // Start Quiz button placed above the quiz dropdown
+                                ui_left.add_space((4.0 * scale).round());
+                                if ui_left.button("Start Quiz").clicked() {
+                                    self.show_quiz_window = true;
+                                    self.status_message = "Starting quiz...".to_string();
+                                }
                                 egui::ComboBox::from_id_salt("quiz_select").selected_text(&titles[qsel]).show_ui(ui_left, |ui| {
                                     for (i, t) in titles.iter().enumerate() {
                                         ui.selectable_value(&mut qsel, i, t);
                                     }
                                 });
+                                // Place the Create button below the dropdown so it's close to the Quiz controls
+                                ui_left.add_space((4.0 * scale).round());
+                                if ui_left.small_button("Create New").clicked() {
+                                    self.show_create_quiz_popup = true;
+                                    self.new_quiz_name.clear();
+                                }
                                 // apply selection change immediately
                                 if self.selected_quiz != Some(qsel) {
                                     self.selected_quiz = Some(qsel);
@@ -948,7 +962,7 @@ impl StudyHelperApp {
                                 // Controls: Delete Quiz (top) and Save (below)
                                 ui_left.add_space((6.0 * scale).round());
                                 ui_left.vertical(|ui_v| {
-                                    if ui_v.button("Delete Quiz").clicked() {
+                                    if ui_v.small_button("Delete Quiz").clicked() {
                                         if let Some(qi) = self.selected_quiz {
                                             if let Some(removed) = self.study_sets[idx].remove_quiz(qi) {
                                                 self.status_message = format!("Deleted quiz '{}'", removed.title());
@@ -993,11 +1007,7 @@ impl StudyHelperApp {
 
             // RIGHT: actions
             ui.allocate_ui_with_layout(egui::Vec2::new(right_width, avail_height), egui::Layout::top_down(egui::Align::Min), |ui_right| {
-                if ui_right.button("Create New Quiz").clicked() {
-                    self.show_create_quiz_popup = true;
-                    self.new_quiz_name.clear();
-                }
-
+                // Create button moved to left pane above the Quiz dropdown
                 ui_right.add_space((6.0 * scale).round());
                 // If a set is selected, show the inline quiz editor (questions) in the right pane.
                 if let Some(set_idx) = self.selected_set {
@@ -1170,6 +1180,41 @@ impl StudyHelperApp {
                     }
                 });
             });
+        }
+        // Distraction-free quiz window (rendered when Start Quiz is clicked)
+        if self.show_quiz_window {
+            // Get full screen rect and size the window to match it
+            let screen_rect = ui.ctx().input(|i| i.screen_rect);
+            let win_w = screen_rect.width().max(1.0);
+            let win_h = screen_rect.height().max(1.0);
+
+            // Use a Window forced to the foreground so it overlays everything and looks like a modal
+            egui::Window::new("Quiz Session")
+                .order(egui::Order::Foreground)
+                .collapsible(false)
+                .resizable(false)
+                .movable(false)
+                .title_bar(false)
+                .default_pos(egui::pos2(screen_rect.left(), screen_rect.top()))
+                .fixed_size(egui::vec2(win_w, win_h))
+                .show(ui.ctx(), |ui_win| {
+                    // Paint a dark background for the whole window to fully obscure underlying UI
+                    let win_rect = ui.ctx().available_rect();
+                    let panel_bg = egui::Color32::from_rgb(18, 18, 20);
+                    ui_win.painter().rect_filled(win_rect, 0.0, panel_bg);
+
+                    // Content centered and in white for dark mode
+                    ui_win.vertical_centered(|ui_c| {
+                        ui_c.add_space(8.0);
+                        ui_c.label(RichText::new("Quiz Session").heading().color(egui::Color32::WHITE));
+                        ui_c.add_space(12.0);
+                        ui_c.label(RichText::new("(Distraction-free mode — quiz content will appear here.)").color(egui::Color32::WHITE));
+                        ui_c.add_space(18.0);
+                        if ui_c.add_sized(egui::Vec2::new(96.0, 36.0), egui::Button::new(RichText::new("Exit").color(egui::Color32::WHITE))).clicked() {
+                            self.show_quiz_window = false;
+                        }
+                    });
+                });
         }
     }
 }
