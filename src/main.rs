@@ -13,7 +13,11 @@ fn main() {
 
     eframe::run_native(
         "Study Helper",
-        eframe::NativeOptions::default(),
+        eframe::NativeOptions {
+            // Start with a reasonable default inner size so the UI elements fit by default.
+            viewport: eframe::egui::ViewportBuilder::default().with_inner_size(eframe::egui::Vec2::new(1000.0, 700.0)),
+            ..Default::default()
+        },
         Box::new(|_cc: &eframe::CreationContext<'_>| {
             Ok(Box::new(gui::StudyHelperApp::default()) as Box<dyn App>)
         }),

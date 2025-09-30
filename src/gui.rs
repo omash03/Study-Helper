@@ -557,7 +557,7 @@ impl StudyHelperApp {
                                         }
                                     }
 
-                                    // Delete the currently selected flashcard. We defer the
+                                    // Delete the currently selected flashcard. Defer the
                                     // actual mutation until after the UI closures to avoid
                                     // borrowing `self.study_sets` mutably while it is already
                                     // immutably borrowed for rendering.
@@ -1038,13 +1038,14 @@ impl StudyHelperApp {
                                         }
                                         if qcount == 0 { ui_list.label("(no questions)"); }
                                         ui_list.add_space((6.0 * scale).round());
-                                        ui_list.horizontal(|ui_lh| {
-                                            if ui_lh.small_button("Add").clicked() {
+                                        ui_list.vertical(|ui_lv| {
+                                            if ui_lv.small_button("Add").clicked() {
                                                 if let Some(quiz_mut) = self.study_sets[set_idx].get_all_quizzes_mut().get_mut(qi) {
                                                     quiz_mut.add_question("New question".to_string(), Vec::new(), "".to_string(), crate::models::QuestionType::FillInTheBlank);
                                                 }
                                             }
-                                            if ui_lh.small_button("Delete").clicked() {
+                                            ui_lv.add_space((4.0 * scale).round());
+                                            if ui_lv.small_button("Delete").clicked() {
                                                 let idx = self.current_card_index;
                                                 if let Some(quiz_mut) = self.study_sets[set_idx].get_all_quizzes_mut().get_mut(qi) {
                                                     if idx < quiz_mut.question_count() {
