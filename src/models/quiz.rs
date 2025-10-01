@@ -41,6 +41,11 @@ impl Quiz {
         &self.title
     }
 
+    /// Set the quiz title (used by UI to apply edited titles)
+    pub fn set_title(&mut self, title: String) {
+        self.title = title;
+    }
+
     pub fn add_question(&mut self, prompt: String, options: Vec<String>, answer: String, question_type: QuestionType) {
         let question = Question {
             prompt,

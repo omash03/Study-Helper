@@ -38,6 +38,8 @@ pub struct StudyHelperApp {
     show_hint: bool,
     // quiz UI state
     selected_quiz: Option<usize>,
+    // track the currently-selected question within the quiz editor separately from flashcard index
+    quiz_current_question_index: usize,
     new_quiz_name: String,
     show_create_quiz_popup: bool,
     // whether the focused quiz window is open (separate distraction-free window)
@@ -47,6 +49,12 @@ pub struct StudyHelperApp {
     new_quiz_tf_count: usize,
     new_quiz_sa_count: usize,
     new_quiz_mb_count: usize,
+    // transient edit buffers for quiz editing (so typing persists across frames)
+    quiz_edit_title: String,
+    quiz_edit_prompt: String,
+    quiz_edit_answer: String,
+    quiz_edit_opts_joined: String,
+    quiz_edit_qtype: crate::models::QuestionType,
 }
 
 enum AppView {
@@ -118,6 +126,7 @@ impl Default for StudyHelperApp {
             new_quiz_tf_count: 0,
             new_quiz_sa_count: 0,
             new_quiz_mb_count: 0,
+            quiz_current_question_index: 0,
             storage_base_path,
             storage_class_name,
             import_file_path: String::new(),
@@ -128,6 +137,11 @@ impl Default for StudyHelperApp {
             selected_class,
             last_storage_base_path,
             last_storage_class_name,
+            quiz_edit_title: String::new(),
+            quiz_edit_prompt: String::new(),
+            quiz_edit_answer: String::new(),
+            quiz_edit_opts_joined: String::new(),
+            quiz_edit_qtype: crate::models::QuestionType::FillInTheBlank,
         }
     }
 }
@@ -293,6 +307,42 @@ impl StudyHelperApp {
                 }
             }
         }
+    }
+
+    /// Populate transient edit buffers from the currently selected quiz/question.
+    fn populate_quiz_edit_buffers(&mut self) {
+        if let Some(set_idx) = self.selected_set {
+            if set_idx < self.study_sets.len() {
+                if let Some(qi) = self.selected_quiz {
+                    if qi < self.study_sets[set_idx].get_all_quizzes().len() {
+                        let quiz = &self.study_sets[set_idx].get_all_quizzes()[qi];
+                        self.quiz_edit_title = quiz.title().to_string();
+                        let sel_q = self.quiz_current_question_index;
+                        if sel_q < quiz.question_count() {
+                            if let Some(qd) = quiz.get_question_data(sel_q) {
+                                self.quiz_edit_prompt = qd.prompt;
+                                self.quiz_edit_answer = qd.answer;
+                                self.quiz_edit_opts_joined = qd.options.join(", ");
+                                self.quiz_edit_qtype = qd.question_type;
+                                return;
+                            }
+                        }
+                        // default empty if question not present
+                        self.quiz_edit_prompt.clear();
+                        self.quiz_edit_answer.clear();
+                        self.quiz_edit_opts_joined.clear();
+                        self.quiz_edit_qtype = crate::models::QuestionType::FillInTheBlank;
+                        return;
+                    }
+                }
+            }
+        }
+        // No quiz selected: clear buffers
+        self.quiz_edit_title.clear();
+        self.quiz_edit_prompt.clear();
+        self.quiz_edit_answer.clear();
+        self.quiz_edit_opts_joined.clear();
+        self.quiz_edit_qtype = crate::models::QuestionType::FillInTheBlank;
     }
 
     fn flashcards_view(&mut self, ui: &mut egui::Ui, scale: f32) {
@@ -666,6 +716,7 @@ impl StudyHelperApp {
 
                         ui_right.add_space((6.0 * scale).round());
                         ui_right.horizontal(|ui_h| {
+                            // Add flashcard button (enabled only if question and answer are non-empty)
                             let can_add = !self.new_question.trim().is_empty() && !self.new_answer.trim().is_empty();
                             if ui_h.add_enabled(can_add, egui::Button::new("Add Flashcard")).clicked() {
                                 // Build the card and push it into the selected set
@@ -929,10 +980,10 @@ impl StudyHelperApp {
                         if idx < self.study_sets.len() {
                             let set = &self.study_sets[idx];
                             let titles = set.quiz_titles();
+                            let mut qsel = self.selected_quiz.unwrap_or(0);
                             if titles.is_empty() {
                                 ui_left.label(RichText::new("(no quizzes)").italics());
                             } else {
-                                let mut qsel = self.selected_quiz.unwrap_or(0);
                                 if qsel >= titles.len() { qsel = 0; }
                                 // Start Quiz button placed above the quiz dropdown
                                 ui_left.add_space((4.0 * scale).round());
@@ -945,18 +996,13 @@ impl StudyHelperApp {
                                         ui.selectable_value(&mut qsel, i, t);
                                     }
                                 });
-                                // Place the Create button below the dropdown so it's close to the Quiz controls
-                                ui_left.add_space((4.0 * scale).round());
-                                if ui_left.small_button("Create New").clicked() {
-                                    self.show_create_quiz_popup = true;
-                                    self.new_quiz_name.clear();
-                                }
                                 // apply selection change immediately
                                 if self.selected_quiz != Some(qsel) {
                                     self.selected_quiz = Some(qsel);
-                                    self.current_card_index = 0;
+                                    self.quiz_current_question_index = 0;
                                     self.card_flipped = false;
                                     self.show_hint = false;
+                                    self.populate_quiz_edit_buffers();
                                 }
 
                                 // Controls: Delete Quiz (top) and Save (below)
@@ -975,10 +1021,15 @@ impl StudyHelperApp {
                                                         Err(e) => self.status_message = format!("Deleted but save failed: {}", e),
                                                     }
                                                 }
-                                                // adjust selection
+                                                // adjust selection: if no remaining quizzes, clear selection
                                                 let remaining = self.study_sets[idx].get_all_quizzes().len();
-                                                if remaining == 0 { self.selected_quiz = None; }
-                                                else if qi >= remaining { self.selected_quiz = Some(0); }
+                                                if remaining == 0 {
+                                                    self.selected_quiz = None;
+                                                    self.quiz_current_question_index = 0;
+                                                } else if qi >= remaining {
+                                                    self.selected_quiz = Some(0);
+                                                    self.quiz_current_question_index = 0;
+                                                }
                                             }
                                         }
                                     }
@@ -996,6 +1047,12 @@ impl StudyHelperApp {
                                         }
                                     }
                                 });
+                            }
+                            // Place the Create button below the dropdown so it's always visible
+                            ui_left.add_space((4.0 * scale).round());
+                            if ui_left.small_button("Create New").clicked() {
+                                self.show_create_quiz_popup = true;
+                                self.new_quiz_name.clear();
                             }
                         }
                     }
@@ -1032,8 +1089,9 @@ impl StudyHelperApp {
                                     // QUESTION LIST (fixed width)
                                     ui_h.allocate_ui_with_layout(egui::Vec2::new(list_w, avail_height), egui::Layout::top_down(egui::Align::Min), |ui_list| {
                                         for i in 0..qcount {
-                                            if ui_list.selectable_label(self.current_card_index == i, format!("{}", i + 1)).clicked() {
-                                                self.current_card_index = i;
+                                            if ui_list.selectable_label(self.quiz_current_question_index == i, format!("{}", i + 1)).clicked() {
+                                                self.quiz_current_question_index = i;
+                                                self.populate_quiz_edit_buffers();
                                             }
                                         }
                                         if qcount == 0 { ui_list.label("(no questions)"); }
@@ -1042,15 +1100,17 @@ impl StudyHelperApp {
                                             if ui_lv.small_button("Add").clicked() {
                                                 if let Some(quiz_mut) = self.study_sets[set_idx].get_all_quizzes_mut().get_mut(qi) {
                                                     quiz_mut.add_question("New question".to_string(), Vec::new(), "".to_string(), crate::models::QuestionType::FillInTheBlank);
+                                                    // select the newly added question
+                                                    self.quiz_current_question_index = quiz_mut.question_count().saturating_sub(1);
                                                 }
                                             }
                                             ui_lv.add_space((4.0 * scale).round());
                                             if ui_lv.small_button("Delete").clicked() {
-                                                let idx = self.current_card_index;
+                                                let idx = self.quiz_current_question_index;
                                                 if let Some(quiz_mut) = self.study_sets[set_idx].get_all_quizzes_mut().get_mut(qi) {
                                                     if idx < quiz_mut.question_count() {
                                                         quiz_mut.remove_question(idx);
-                                                        if self.current_card_index > 0 { self.current_card_index -= 1; }
+                                                        if self.quiz_current_question_index > 0 { self.quiz_current_question_index -= 1; }
                                                     }
                                                 }
                                             }
@@ -1061,26 +1121,27 @@ impl StudyHelperApp {
 
                                     // EDITOR (use the precomputed edit_w for sizing the text fields)
                                     ui_h.allocate_ui_with_layout(egui::Vec2::new(edit_w, avail_height), egui::Layout::top_down(egui::Align::Min), |ui_edit| {
-                                        let sel_q = self.current_card_index;
-                                        if sel_q < qcount {
-                                            if let Some(qdata) = self.study_sets[set_idx].get_all_quizzes()[qi].get_question_data(sel_q) {
-                                                let mut qdata = qdata; // owned copy for editing
+                                        // Editable quiz title (persistent buffer)
+                                        ui_edit.label("Quiz title:");
+                                        ui_edit.text_edit_singleline(&mut self.quiz_edit_title);
+
+                                            let sel_q = self.quiz_current_question_index;
+                                            if sel_q < qcount {
+                                                // Bind editor fields to persistent buffers so typing remains across frames
                                                 ui_edit.label("Prompt:");
                                                 let text_w = (edit_w * 0.95).round();
-                                                ui_edit.add(egui::TextEdit::multiline(&mut qdata.prompt).desired_rows(2).desired_width(text_w));
+                                                ui_edit.add(egui::TextEdit::multiline(&mut self.quiz_edit_prompt).desired_rows(2).desired_width(text_w));
                                                 ui_edit.label("Answer:");
-                                                ui_edit.add(egui::TextEdit::multiline(&mut qdata.answer).desired_rows(2).desired_width(text_w));
+                                                ui_edit.add(egui::TextEdit::multiline(&mut self.quiz_edit_answer).desired_rows(2).desired_width(text_w));
                                                 ui_edit.label("Options (comma-separated, for MC):");
-                                                let mut opts_joined = qdata.options.join(", ");
-                                                ui_edit.add(egui::TextEdit::multiline(&mut opts_joined).desired_rows(2).desired_width(text_w));
+                                                ui_edit.add(egui::TextEdit::multiline(&mut self.quiz_edit_opts_joined).desired_rows(2).desired_width(text_w));
                                                 ui_edit.label("Type:");
-                                                let mut qtype = qdata.question_type.clone();
                                                 ui_edit.horizontal(|ui_ht| {
-                                                    if ui_ht.selectable_label(qtype == crate::models::QuestionType::MultipleChoice, "Multiple Choice").clicked() {
-                                                        qtype = crate::models::QuestionType::MultipleChoice;
+                                                    if ui_ht.selectable_label(self.quiz_edit_qtype == crate::models::QuestionType::MultipleChoice, "Multiple Choice").clicked() {
+                                                        self.quiz_edit_qtype = crate::models::QuestionType::MultipleChoice;
                                                     }
-                                                    if ui_ht.selectable_label(qtype == crate::models::QuestionType::FillInTheBlank, "Fill In The Blank").clicked() {
-                                                        qtype = crate::models::QuestionType::FillInTheBlank;
+                                                    if ui_ht.selectable_label(self.quiz_edit_qtype == crate::models::QuestionType::FillInTheBlank, "Fill In The Blank").clicked() {
+                                                        self.quiz_edit_qtype = crate::models::QuestionType::FillInTheBlank;
                                                     }
                                                 });
 
@@ -1088,12 +1149,25 @@ impl StudyHelperApp {
                                                 ui_edit.horizontal(|ui_apply| {
                                                     if ui_apply.button("Apply").clicked() {
                                                         if let Some(quiz_mut) = self.study_sets[set_idx].get_all_quizzes_mut().get_mut(qi) {
-                                                            let new_opts: Vec<String> = opts_joined.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-                                                            let new_data = crate::models::QuestionData { prompt: qdata.prompt, options: new_opts, answer: qdata.answer, question_type: qtype };
-                                                            quiz_mut.update_question(sel_q, new_data);
+                                                            // apply title change from buffer
+                                                            quiz_mut.set_title(self.quiz_edit_title.clone());
+                                                            let new_opts: Vec<String> = self.quiz_edit_opts_joined.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                                                            let new_data = crate::models::QuestionData { prompt: self.quiz_edit_prompt.clone(), options: new_opts, answer: self.quiz_edit_answer.clone(), question_type: self.quiz_edit_qtype.clone() };
+                                                            if quiz_mut.update_question(sel_q, new_data) {
+                                                                self.status_message = "Applied changes to question".to_string();
+                                                            } else {
+                                                                self.status_message = "Failed to apply changes".to_string();
+                                                            }
                                                         }
                                                     }
                                                     if ui_apply.button("Save").clicked() {
+                                                        // write buffer back to model and persist set
+                                                        if let Some(quiz_mut) = self.study_sets[set_idx].get_all_quizzes_mut().get_mut(qi) {
+                                                            quiz_mut.set_title(self.quiz_edit_title.clone());
+                                                            let new_opts: Vec<String> = self.quiz_edit_opts_joined.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                                                            let new_data = crate::models::QuestionData { prompt: self.quiz_edit_prompt.clone(), options: new_opts, answer: self.quiz_edit_answer.clone(), question_type: self.quiz_edit_qtype.clone() };
+                                                            let _ = quiz_mut.update_question(sel_q, new_data);
+                                                        }
                                                         if !self.storage_base_path.trim().is_empty() && !self.storage_class_name.trim().is_empty() {
                                                             let base = std::path::Path::new(&self.storage_base_path);
                                                             let set_ref = &self.study_sets[set_idx];
@@ -1106,10 +1180,9 @@ impl StudyHelperApp {
                                                         }
                                                     }
                                                 });
+                                            } else {
+                                                ui_edit.label("Select a question to edit or add a new one.");
                                             }
-                                        } else {
-                                            ui_edit.label("Select a question to edit or add a new one.");
-                                        }
                                     });
                                 });
                             }
@@ -1147,35 +1220,53 @@ impl StudyHelperApp {
                 ui_win.add_space((6.0 * scale).round());
                 ui_win.horizontal(|ui_h| {
                     if ui_h.button("Create").clicked() {
-                        if !self.new_quiz_name.trim().is_empty() {
-                            let mut q = AppQuiz::new(self.new_quiz_name.trim().to_string());
-                            q.add_placeholder_questions(self.new_quiz_mc_count, self.new_quiz_tf_count, self.new_quiz_sa_count, self.new_quiz_mb_count);
-                            if let Some(idx) = self.selected_set {
-                                if idx < self.study_sets.len() {
-                                    self.study_sets[idx].add_quiz(q);
-                                    // persist if configured
-                                    if !self.storage_base_path.trim().is_empty() && !self.storage_class_name.trim().is_empty() {
-                                        let base = std::path::Path::new(&self.storage_base_path);
+                            if !self.new_quiz_name.trim().is_empty() {
+                                let mut q = AppQuiz::new(self.new_quiz_name.trim().to_string());
+                                // If a study set is selected, prefill quiz questions from its flashcards (autofill prompts).
+                                if let Some(idx) = self.selected_set {
+                                    if idx < self.study_sets.len() {
                                         let set = &self.study_sets[idx];
-                                        match crate::storage::save_set_into_class_folder(base, &self.storage_class_name, set.name(), set) {
-                                            Ok(p) => self.status_message = format!("Created and saved quiz in {}", p.display()),
-                                            Err(e) => self.status_message = format!("Created but save failed: {}", e),
+                                        for fc in set.get_all_flashcards().iter() {
+                                            // Use the flashcard question as the quiz prompt; leave answer empty for the user to type.
+                                            q.add_question(fc.question().to_string(), Vec::new(), String::new(), crate::models::QuestionType::FillInTheBlank);
                                         }
-                                    } else {
-                                        self.status_message = format!("Created quiz '{}'", self.new_quiz_name.trim());
+                                        // Also add any additional placeholder questions requested by the counts
+                                        q.add_placeholder_questions(self.new_quiz_mc_count, self.new_quiz_tf_count, self.new_quiz_sa_count, self.new_quiz_mb_count);
+
+                                        // attach quiz to the selected set
+                                        self.study_sets[idx].add_quiz(q);
+
+                                        // persist if configured
+                                        if !self.storage_base_path.trim().is_empty() && !self.storage_class_name.trim().is_empty() {
+                                            let base = std::path::Path::new(&self.storage_base_path);
+                                            let set_ref = &self.study_sets[idx];
+                                            match crate::storage::save_set_into_class_folder(base, &self.storage_class_name, set_ref.name(), set_ref) {
+                                                Ok(p) => self.status_message = format!("Created and saved quiz in {}", p.display()),
+                                                Err(e) => self.status_message = format!("Created but save failed: {}", e),
+                                            }
+                                        } else {
+                                            self.status_message = format!("Created quiz '{}'", self.new_quiz_name.trim());
+                                        }
+
+                                        // select the newly created quiz
+                                        self.selected_quiz = Some(self.study_sets[idx].get_all_quizzes().len() - 1);
                                     }
-                                    self.selected_quiz = Some(self.study_sets[idx].get_all_quizzes().len() - 1);
+                                } else {
+                                    // No set selected: still allow creating an empty quiz with placeholders
+                                    q.add_placeholder_questions(self.new_quiz_mc_count, self.new_quiz_tf_count, self.new_quiz_sa_count, self.new_quiz_mb_count);
+                                    // No place to attach the quiz, so put a status message
+                                    self.status_message = format!("Created quiz '{}' (not attached - select a set to save)", self.new_quiz_name.trim());
                                 }
+
+                                self.show_create_quiz_popup = false;
+                                self.new_quiz_name.clear();
+                                // reset counts
+                                self.new_quiz_mc_count = 0;
+                                self.new_quiz_tf_count = 0;
+                                self.new_quiz_sa_count = 0;
+                                self.new_quiz_mb_count = 0;
                             }
-                            self.show_create_quiz_popup = false;
-                            self.new_quiz_name.clear();
-                            // reset counts
-                            self.new_quiz_mc_count = 0;
-                            self.new_quiz_tf_count = 0;
-                            self.new_quiz_sa_count = 0;
-                            self.new_quiz_mb_count = 0;
                         }
-                    }
                     if ui_h.button("Cancel").clicked() {
                         self.show_create_quiz_popup = false;
                     }
